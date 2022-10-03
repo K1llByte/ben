@@ -9,6 +9,7 @@ struct Minecraft;
 
 #[command]
 pub async fn mc(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    msg.react(ctx, '😄').await?;
     // FIXME: Implement a proper permission system
     if msg.author.id.0 == 181002804813496320u64 {
         use std::process::Command;
