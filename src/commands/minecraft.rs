@@ -12,12 +12,12 @@ pub async fn mc(ctx: &Context, msg: &Message) -> CommandResult {
     use std::process::Command;
 
     let res = Command::new("./send.sh")
-        .arg("list")
+        .arg(&msg.content)
         .spawn();
     
     msg.reply(ctx, 
-        if let Ok(_) = res { "Success" }
-        else { "Service unavailable" }
+        if let Ok(_) = res { format!("Success '{}'", &msg.content) }
+        else { "Service unavailable".to_string() }
     ).await?;
     Ok(())
 }
