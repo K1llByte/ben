@@ -20,7 +20,7 @@ pub async fn mc(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                     .spawn();
             
                 msg.react(ctx, 
-                    if let Ok(_) = res { '🥸' }
+                    if let Ok(_) = res { '✔' }
                     else { '❌' }
                 ).await?;
             }
@@ -31,8 +31,8 @@ pub async fn mc(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                         .arg(mc_cmd)
                         .spawn();
                     
-                    msg.reply(ctx, 
-                        if let Ok(_) = res { '🥸' }
+                    msg.react(ctx, 
+                        if let Ok(_) = res { '✔' }
                         else { '❌' }
                     ).await?;
                 }
