@@ -16,7 +16,7 @@ pub async fn mc(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
             .spawn();
         
         msg.reply(ctx, 
-            if let Ok(_) = res { format!("Success '{:?}'", mc_cmd) }
+            if let Ok(_) = res { format!("Success") }
             else { "Service unavailable".to_string() }
         ).await?;
     }
