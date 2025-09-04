@@ -7,7 +7,8 @@ use crate::{Context, Error};
 pub async fn wm(
     ctx: Context<'_>,
 ) -> Result<(), Error> {
-    let wm_data = ctx.data().wm_counters().await;
+    let mut wm_data = ctx.data().wm_counters().await;
+    wm_data.1.sort_by(|a, b| b.1.cmp(&a.1));
 
     let mut output = format!("White monster cans: {} / 32\n", wm_data.0);
     for (user_id, count) in wm_data.1 {

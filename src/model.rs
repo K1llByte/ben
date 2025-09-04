@@ -53,18 +53,6 @@ impl Model {
         .await
         .unwrap();
         
-        // let wm_counter: i64 = sqlx::query_scalar(
-        //     r#"
-        //     UPDATE white_monster_counter
-        //     SET counter = counter + $1
-        //     RETURNING counter;
-        //     "#
-        // )
-        // .bind(amount)
-        // .fetch_one(&self.db_pool)
-        // .await
-        // .unwrap();
-
         u32::try_from(wm_counter).unwrap()
     }
 
@@ -84,18 +72,6 @@ impl Model {
         .await
         .unwrap();
         
-        // let wm_counter: i64 = sqlx::query_scalar(
-        //     r#"
-        //     UPDATE white_monster_counter
-        //     SET counter = MAX(counter - $1, 0)
-        //     RETURNING counter;
-        //     "#
-        // )
-        // .bind(amount)
-        // .fetch_one(&self.db_pool)
-        // .await
-        // .unwrap();
-
         u32::try_from(wm_counter).unwrap()
     }
 }
