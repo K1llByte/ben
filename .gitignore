@@ -11,3 +11,6 @@ Cargo.lock
 
 # Remove .env
 .*
+
+# Remove sqlite local database file
+data.db
