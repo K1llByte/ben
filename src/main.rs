@@ -1,7 +1,6 @@
-use poise::serenity_prelude as serenity;
+use poise::serenity_prelude::{self as serenity};
 use std::{
-    sync::Arc,
-    time::Duration,
+    collections::HashSet, sync::Arc, time::Duration
 };
 use tracing_subscriber;
 use tracing::{info, error};
@@ -43,14 +42,29 @@ async fn main() {
     // Login with a bot token from the environment
     let token = std::env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
 
+    #[allow(unused_mut)]
+    let mut owners = HashSet::new();
+    // owners.insert(UserId::new(181002804813496320));
+
     // FrameworkOptions contains all of poise's configuration option in one struct
     // Every option can be omitted to use its default value
     let options = poise::FrameworkOptions {
         commands: vec![
+            commands::help(),
+            commands::debug(),
+            // White Monster
             commands::wm(),
             commands::wmadd(),
             commands::wmrm(),
-            commands::help(),
+            // Finance
+            commands::bank(),
+            commands::give(),
+            // commands::bless(),
+            commands::leaderboard(),
+            commands::price()
+            // commands::portfolio(),
+            // commands::buy(),
+            // commands::sell(),
         ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("!".into()),
@@ -61,13 +75,13 @@ async fn main() {
         },
         // The global error handler for all error cases that may occur
         on_error: |error| Box::pin(on_error(error)),
-        
         // This code is run after a command if it was successful (returned Ok)
         post_command: |ctx| {
             Box::pin(async move {
-                info!("{} executed command {}!", ctx.author().display_name(), ctx.command().qualified_name);
+                info!("{} executed command {}", ctx.author().display_name(), ctx.command().qualified_name);
             })
         },
+        owners,
         ..Default::default()
     };
 

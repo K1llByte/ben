@@ -1,16 +1,27 @@
-use crate::{Context, Error};
+use crate::{Context};
 
+/// Help command
 #[poise::command(prefix_command, slash_command)]
 pub async fn help(
     ctx: Context<'_>,
-) -> Result<(), Error> {
-    let help_message = "Available commands: \n\
-        ```\n\
-        wmadd - Increments the counter of white monster cans\n\
-        wmrm  - Decrements the counter of white monster cans\n\
-        wm    - Displays the current counter of white monster cans\n\
-        ```";
+    #[description = "Specific command to show help about"]
+    command: Option<String>,
+) -> Result<(), crate::Error> {
+    let config = poise::builtins::HelpConfiguration {
+        ephemeral: false,
+        extra_text_at_bottom: "\
+Type !help <command> for more info on a command.",
+        ..Default::default()
+    };
+    poise::builtins::help(ctx, command.as_deref(), config).await?;
+    Ok(())
+}
 
-    ctx.say(help_message).await?;
+/// Debug command used for testing
+#[poise::command(prefix_command, slash_command, owners_only)]
+pub async fn debug(
+    ctx: Context<'_>,
+) -> Result<(), crate::Error> {
+    ctx.say("Debug command").await?;
     Ok(())
 }

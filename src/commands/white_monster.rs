@@ -3,12 +3,12 @@ use tracing::trace;
 
 use crate::{Context, Error};
 
-#[poise::command(prefix_command, slash_command)]
+/// Displays the current counter of white monster cans.
+#[poise::command(prefix_command, slash_command, category = "White Monster")]
 pub async fn wm(
     ctx: Context<'_>,
 ) -> Result<(), Error> {
-    let mut wm_data = ctx.data().wm_counters().await;
-    wm_data.1.sort_by(|a, b| b.1.cmp(&a.1));
+    let wm_data = ctx.data().wm_counters().await;
 
     let mut output = format!("White monster cans: {} / 32\n", wm_data.0);
     for (user_id, count) in wm_data.1 {
@@ -24,15 +24,16 @@ pub async fn wm(
     Ok(())
 }
 
-#[poise::command(prefix_command, slash_command)]
+/// Increments the counter of white monster cans.
+#[poise::command(prefix_command, slash_command, category = "White Monster")]
 pub async fn wmadd(
     ctx: Context<'_>,
     #[description = "Number of white monsters to add (default: 1)"]
-    value: Option<u32>
+    amount: Option<u32>
 ) -> Result<(), Error> {
     let wm_counter = ctx.data().inc_wm_counter(
         ctx.author().id.get(),
-        value.unwrap_or(1)
+        amount.unwrap_or(1)
     ).await;
 
     trace!("Incremented white monster counter to {}", wm_counter);
@@ -40,15 +41,16 @@ pub async fn wmadd(
     Ok(())
 }
 
-#[poise::command(prefix_command, slash_command)]
+/// Decrements the counter of white monster cans.
+#[poise::command(prefix_command, slash_command, category = "White Monster")]
 pub async fn wmrm(
     ctx: Context<'_>,
     #[description = "Number of white monsters to remove (default: 1)"]
-    value: Option<u32>
+    amount: Option<u32>
 ) -> Result<(), Error> {
     let wm_counter = ctx.data().dec_wm_counter(
         ctx.author().id.get(),
-        value.unwrap_or(1)
+        amount.unwrap_or(1)
     ).await;
 
     trace!("Decremented white monster counter to {}", wm_counter);
