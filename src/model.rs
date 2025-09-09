@@ -1,11 +1,53 @@
+use std::{collections::HashMap, ops::Mul};
+
+use reqwest::Client;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use serde::Deserialize;
+use tracing::{debug, trace, warn};
+
+use crate::config::Config;
+
+// pub enum CryptoError {
+//     SymbolNotFound,
+//     UnexpectedApiError,
+// }
 
 pub struct Model {
+    config: Config,
     db_pool: SqlitePool,
 }
 
+pub struct CoinInfo {
+    pub symbol: String,
+    pub name: String,
+    pub current_price: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct CmcApiResponse {
+    status: CmcStatus,
+    data: Option<HashMap<String, CmcCryptoData>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CmcStatus {
+    error_code: i32,
+    error_message: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CmcCryptoData {
+    name: String,
+    quote: HashMap<String, CmcQuoteData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CmcQuoteData {
+    price: f64,
+}
+
 impl Model {
-    pub async fn new() -> Self {
+    pub async fn new(config: Config) -> Self {
         // TODO: Handle errors properly
         
         // Connect to SQLite (creates data.db if it doesn't exist)
@@ -15,31 +57,57 @@ impl Model {
             .create_if_missing(true)
         ).await.unwrap();
 
+        // Enable foreign_keys in sqlite
+        sqlx::query(r#"PRAGMA foreign_keys = ON;"#)
+            .execute(&db_pool)
+            .await
+            .unwrap();
+
         // Create white monster counter table
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS white_monster_counter (
-                user_id TEXT NOT NULL UNIQUE,
+                user_id TEXT NOT NULL PRIMARY KEY,
                 count INT NOT NULL
             )
             "#,
         )
         .execute(&db_pool)
-        .await.unwrap();
+        .await
+        .unwrap();
 
         // Create bank table
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS bank (
-                user_id TEXT NOT NULL UNIQUE,
+                user_id TEXT NOT NULL PRIMARY KEY,
                 balance REAL NOT NULL
             )
             "#,
         )
         .execute(&db_pool)
-        .await.unwrap();
+        .await
+        .unwrap();
         
-        Self { db_pool }
+        // Create portfolio table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS transactions (
+                transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                coin_symbol TEXT NOT NULL,
+                amount REAL NOT NULL,
+                price REAL NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES bank(user_id)
+            )
+            "#,
+        )
+        .execute(&db_pool)
+        .await
+        .unwrap();
+
+        Self { config, db_pool }
     }
 
     pub async fn wm_counters(&self) -> (u32, Vec<(u64, u32)>) {
@@ -222,5 +290,157 @@ impl Model {
             .map(|(user_id, count)| (user_id.parse::<u64>().unwrap(), *count))
             .collect::<Vec<(u64, f64)>>();
         bank_data_converted
+    }
+
+    // Return crypto coin name and price
+    pub async fn coin_info(&self, coin_symbol: &str) -> Option<CoinInfo> {
+        let url = format!(
+            "https://{}-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={}&convert=eur",
+            if self.config.use_cmc_sandbox_api { "sandbox" } else { "pro" },
+            coin_symbol
+        );
+
+        let response = Client::new()
+            .get(&url)
+            .header("X-CMC_PRO_API_KEY", &self.config.cmc_api_key)
+            .send()
+            .await
+            .ok()?
+            .json::<CmcApiResponse>()
+            .await
+            .ok()?;
+
+        if response.status.error_code != 0 {
+            warn!("Cmc request returned with error_code {}", response.status.error_code);
+        }
+
+        let data = response.data?;        
+        debug!("data: {:?}", data);
+
+        let crypto_data = data.get(coin_symbol.to_uppercase().as_str())?;
+
+        Some(CoinInfo {
+            symbol: coin_symbol.into(),
+            name: crypto_data.name.clone(),
+            current_price: crypto_data.quote.get("EUR")?.price,
+        })
+    }
+
+    pub async fn portfolio(&self, user_id: u64) -> Option<Vec<(String, f64, f64)>>{
+        println!("Before getting query data");
+        let mut portfolio_raw_data: Vec<(String, f64, f64)> = sqlx::query_as(
+            r#"
+            SELECT coin_symbol, SUM(amount) AS total_amount, 0. AS total_value
+            FROM transactions
+            WHERE user_id = $1
+            GROUP BY coin_symbol
+            HAVING total_amount > 0;
+            "#
+        )
+        .bind(user_id.to_string())
+        .fetch_all(&self.db_pool)
+        .await
+        .ok()?;
+
+        for (coin_symbol, total_amount, total_value) in &mut portfolio_raw_data {
+            let current_price = self.coin_info(&coin_symbol).await?.current_price;
+            *total_value = total_amount.mul(current_price);
+        }
+
+        Some(portfolio_raw_data)
+    }
+
+    /// Create a transaction, returns amount of coins bought/sold and current price
+    pub async fn buy(&self, user_id: u64, coin_symbol: &str, euro_amount: f64) -> Option<(f64, f64)> {
+        // Check if amount is positive
+        if euro_amount <= 0f64 {
+            return None;
+        }
+
+        // Get current coin price. Indirectly also checks if symbol is valid
+        let Some(coin_info) = self.coin_info(coin_symbol).await else {
+            return None;
+        };
+        println!("Afer getting coin_info");
+
+        // Convert euro_amount to coin_amount
+        let coin_amount = euro_amount / coin_info.current_price;
+
+        trace!("Creating transaction of {} {}", coin_amount, coin_symbol);
+        let res = sqlx::query(
+            r#"
+            INSERT INTO transactions (user_id, coin_symbol, amount, price)
+            VALUES ($1, $2, $3, $4)
+            "#
+        )
+        .bind(user_id.to_string())
+        .bind(coin_symbol.to_uppercase())
+        .bind(coin_amount)
+        .bind(coin_info.current_price)
+        .execute(&self.db_pool)
+        .await;
+
+        // Remove euros_amount from balance and make this a db transaction
+        self.bless(user_id, -euro_amount).await.unwrap();
+        
+        // FIXME: If we get foregn key constraint violation then return error user doesn have a bank account
+
+        res.is_ok().then_some((coin_amount, coin_info.current_price))
+    }
+
+    pub async fn sell(&self, user_id: u64, coin_symbol: &str, euro_amount: f64) -> Option<(f64, f64)> {
+        // Check if amount is positive (we are selling a positive ammount)
+        if euro_amount <= 0f64 {
+            return None;
+        }
+
+        // Get current coin price. Indirectly also checks if symbol is valid
+        let Some(coin_info) = self.coin_info(coin_symbol).await else {
+            return None;
+        };
+
+        // Convert user_id to string here for reuse.
+        let user_id_str = user_id.to_string();
+
+        // Convert euro_amount to coin_amount
+        let coin_amount = euro_amount / coin_info.current_price;
+
+        // Check if user_id has this amount of coins
+        let owned_coin_amount: f64 = sqlx::query_scalar(
+            r#"
+            SELECT SUM(amount) FROM transactions WHERE user_id = $1;
+            "#
+        )
+        .bind(user_id_str)
+        .fetch_one(&self.db_pool)
+        .await
+        .ok()?;
+
+        // Only proceed with transaction if user has at least the amount of
+        // coins intended to sell.
+        if owned_coin_amount < coin_amount {
+            return None;
+        }
+
+        trace!("Creating transaction of {} {}", coin_amount, coin_symbol);
+        let res = sqlx::query(
+            r#"
+            INSERT INTO transactions (user_id, coin_symbol, amount, price)
+            VALUES ($1, $2, $3, $4)
+            "#
+        )
+        .bind(user_id.to_string())
+        .bind(coin_symbol)
+        .bind(-1f64 * coin_amount)
+        .bind(coin_info.current_price)
+        .execute(&self.db_pool)
+        .await;
+
+        // Add euros_amount to balance and make this a db transaction
+        self.bless(user_id, euro_amount).await.unwrap();
+        
+        // FIXME: If we get foreign key constraint violation then return error user doesn have a bank account
+
+        res.is_ok().then_some((coin_amount, coin_info.current_price))
     }
 }

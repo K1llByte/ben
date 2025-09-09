@@ -5,8 +5,11 @@ use std::{
 use tracing_subscriber;
 use tracing::{info, error};
 
+use crate::config::Config;
+
 mod commands;
 mod model;
+mod config;
 
 // Types used by all command functions
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -41,6 +44,10 @@ async fn main() {
 
     // Login with a bot token from the environment
     let token = std::env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
+    let config = Config {
+        cmc_api_key: std::env::var("CMC_API_KEY").expect("Expected an api key in the environment"),
+        ..Config::default()
+    };
 
     #[allow(unused_mut)]
     let mut owners = HashSet::new();
@@ -59,12 +66,13 @@ async fn main() {
             // Finance
             commands::bank(),
             commands::give(),
-            // commands::bless(),
+            commands::bless(),
             commands::leaderboard(),
-            commands::price()
-            // commands::portfolio(),
-            // commands::buy(),
-            // commands::sell(),
+            commands::price(),
+            commands::portfolio(),
+            commands::buy(),
+            commands::sell(),
+            // commands::sellall(),
         ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("!".into()),
@@ -91,7 +99,7 @@ async fn main() {
             Box::pin(async move {
                 info!("Connected as {}", _ready.user.name);
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                Ok(model::Model::new().await)
+                Ok(model::Model::new(config).await)
             })
         })
         .options(options)

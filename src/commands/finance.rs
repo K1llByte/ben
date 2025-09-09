@@ -1,4 +1,6 @@
-use poise::serenity_prelude::{Mention, User, UserId};
+use std::collections::HashMap;
+
+use poise::serenity_prelude::{Client, Mention, User, UserId};
 use tracing_subscriber::fmt::format;
 
 use crate::{commands::get_user_name, Context, Error};
@@ -135,11 +137,20 @@ pub async fn leaderboard(
     Ok(())
 }
 
-/// Displays the current price for a specific coin.
+/// Displays the current price for a specific coin. For more info go to https://coinmarketcap.com/
 #[poise::command(prefix_command, slash_command, category = "Finance")]
 pub async fn price(
     ctx: Context<'_>,
+    #[description = "Crypto currency symbol (ie: btc, eth, ...)"]
+    coin_symbol: String,
 ) -> Result<(), Error> {
+    if let Some(coin_info) = ctx.data().coin_info(&coin_symbol).await {
+        ctx.say(format!("**Name:** `{}`\n**Current Price:** `{}` euros", coin_info.name, coin_info.current_price)).await?;
+    }
+    else {
+        ctx.say(format!("Could not get coin info")).await?;
+    }
+
     Ok(())
 }
 
@@ -148,6 +159,28 @@ pub async fn price(
 pub async fn portfolio(
     ctx: Context<'_>,
 ) -> Result<(), Error> {
+    let portfolio_opt = ctx.data().portfolio(ctx.author().id.get()).await;
+    
+    if let Some(portfolio) = portfolio_opt {
+        let mut portfolio_str = "Portfolio:\n".to_string();
+        for (coin_symbol, total_amount, total_value) in &portfolio {
+            portfolio_str.push_str(
+                format!(
+                    "- Symbol: **{}**, Total Amount: `{}` Total Value: `{}` euros\n",
+                    coin_symbol,
+                    total_amount,
+                    total_value
+                ).as_str()
+            );
+        }
+
+        ctx.say(portfolio_str).await.unwrap();
+    }
+    else {
+        ctx.say("Could not get portfolio data").await.unwrap();
+        
+    }
+
     Ok(())
 }
 
@@ -155,14 +188,42 @@ pub async fn portfolio(
 #[poise::command(prefix_command, slash_command, category = "Finance")]
 pub async fn buy(
     ctx: Context<'_>,
+    #[description = "Crypto currency symbol (ie: btc, eth, ...)"]
+    coin_symbol: String,
+    #[description = "Value in euros of the amount of crypto you want to buy"]
+    value: f64,
 ) -> Result<(), Error> {
+    
+    let amount_and_price_opt = ctx.data().buy(ctx.author().id.get(), &coin_symbol, value).await;
+
+    if let Some(amount_and_price) = amount_and_price_opt {
+        ctx.say(format!("Successfully bought `{}` {} at {} euros", amount_and_price.0, coin_symbol.to_uppercase(), amount_and_price.1)).await.unwrap();
+    }
+    else {
+        ctx.say("Could not complete transaction").await.unwrap();
+    }
+
     Ok(())
 }
 
-/// Buy crypto currency in euros, if successful prints amount of coins bought.
+/// Selll crypto currency in euros, if successful prints amount of coins bought.
 #[poise::command(prefix_command, slash_command, category = "Finance")]
 pub async fn sell(
     ctx: Context<'_>,
+    #[description = "Crypto currency symbol (ie: btc, eth, ...)"]
+    coin_symbol: String,
+    #[description = "Value in euros of the amount of crypto you want to sell"]
+    value: f64,
 ) -> Result<(), Error> {
+
+    let amount_and_price_opt = ctx.data().sell(ctx.author().id.get(), &coin_symbol, value).await;
+    
+    if let Some(amount_and_price) = amount_and_price_opt {
+        ctx.say(format!("Successfully sold `{}` {} at {} euros", amount_and_price.0, coin_symbol.to_uppercase(), amount_and_price.1)).await.unwrap();
+    }
+    else {
+        ctx.say("Could not complete transaction").await.unwrap();
+    }
+
     Ok(())
 }
