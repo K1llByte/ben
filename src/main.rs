@@ -73,6 +73,7 @@ async fn main() {
             commands::buy(),
             commands::sell(),
             // commands::sellall(),
+            commands::coin(),
         ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("!".into()),

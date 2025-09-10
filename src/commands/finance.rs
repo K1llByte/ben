@@ -206,7 +206,7 @@ pub async fn buy(
     Ok(())
 }
 
-/// Selll crypto currency in euros, if successful prints amount of coins bought.
+/// Sell crypto currency in euros, if successful prints amount of coins bought.
 #[poise::command(prefix_command, slash_command, category = "Finance")]
 pub async fn sell(
     ctx: Context<'_>,
@@ -223,6 +223,27 @@ pub async fn sell(
     }
     else {
         ctx.say("Could not complete transaction").await.unwrap();
+    }
+
+    Ok(())
+}
+
+/// roll <color> <bet>.
+#[poise::command(prefix_command, slash_command, category = "Finance")]
+pub async fn coin(
+    ctx: Context<'_>,
+    #[description = "Heads or tails"]
+    choice: String,
+    #[description = "Bet amount in euros"]
+    bet: f64,
+) -> Result<(), Error> {
+
+    let has_won_opt = ctx.data().coin_flip(ctx.author().id.get(), choice.to_lowercase().as_str(), bet).await;
+
+    match has_won_opt {
+        Some(true) => { ctx.say(format!("Congratulations, the coin landed on {}!\nYou won {} euros :euro:", choice.to_lowercase(), bet)).await.unwrap(); },
+        Some(false) => { ctx.say(format!("Ups, you lost {} euros", bet)).await.unwrap(); },
+        None => { ctx.say("Could not finish action").await.unwrap(); },
     }
 
     Ok(())

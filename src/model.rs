@@ -1,5 +1,6 @@
 use std::{collections::HashMap, ops::Mul};
 
+use rand::Rng;
 use reqwest::Client;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use serde::Deserialize;
@@ -442,5 +443,40 @@ impl Model {
         // FIXME: If we get foreign key constraint violation then return error user doesn have a bank account
 
         res.is_ok().then_some((coin_amount, coin_info.current_price))
+    }
+
+    pub async fn coin_flip(&self, user_id: u64, choice: &str, bet: f64) -> Option<bool> {
+        // Bet must be positive amount
+        if bet <= 0f64 {
+            return None;
+        }
+
+        // Flip coin with 50/50 probability
+        let flip_result = rand::rng().random_bool(0.5);
+        
+        // true is heads, false is tails 
+        let has_won = match choice {
+            "heads" => { flip_result },
+            "tails" => { !flip_result },
+            _ => { return None; },
+        };
+
+        
+        // Update user funds, add bet if won, subtract bet otherwise
+        let res = sqlx::query(
+            r#"
+            UPDATE bank
+            SET balance = balance + $2
+            WHERE user_id = $1 AND balance >= $2
+            RETURNING balance
+            "#
+        )
+        .bind(user_id.to_string())
+        .bind(if has_won { bet } else {-bet})
+        .execute(&self.db_pool)
+        .await
+        .ok()?;
+    
+        Some(has_won)
     }
 }
