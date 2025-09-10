@@ -74,6 +74,7 @@ async fn main() {
             commands::sell(),
             // commands::sellall(),
             commands::coin(),
+            commands::daily(),
         ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("!".into()),

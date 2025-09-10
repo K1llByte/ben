@@ -228,7 +228,7 @@ pub async fn sell(
     Ok(())
 }
 
-/// roll <color> <bet>.
+/// Bet on heads or tails.
 #[poise::command(prefix_command, slash_command, category = "Finance")]
 pub async fn coin(
     ctx: Context<'_>,
@@ -246,5 +246,20 @@ pub async fn coin(
         None => { ctx.say("Could not finish action").await.unwrap(); },
     }
 
+    Ok(())
+}
+
+/// Claim daily reward.
+#[poise::command(prefix_command, slash_command, category = "Finance")]
+pub async fn daily(
+    ctx: Context<'_>,
+) -> Result<(), Error> {
+
+    match ctx.data().daily(ctx.author().id.get()).await {
+        Some(true) => ctx.say(format!("Claimed daily reward `{}` euros", ctx.data().daily_amount)).await,
+        Some(false) => ctx.say("Already claimed reward today").await,
+        None => ctx.say("Could not finish action").await,
+    }.unwrap();
+    
     Ok(())
 }

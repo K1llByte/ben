@@ -16,6 +16,7 @@ use crate::config::Config;
 pub struct Model {
     config: Config,
     db_pool: SqlitePool,
+    pub daily_amount: f64,
 }
 
 pub struct CoinInfo {
@@ -82,7 +83,8 @@ impl Model {
             r#"
             CREATE TABLE IF NOT EXISTS bank (
                 user_id TEXT NOT NULL PRIMARY KEY,
-                balance REAL NOT NULL
+                balance REAL NOT NULL,
+                last_daily DATETIME NOT NULL
             )
             "#,
         )
@@ -108,7 +110,11 @@ impl Model {
         .await
         .unwrap();
 
-        Self { config, db_pool }
+        Self { 
+            config,
+            db_pool,
+            daily_amount: 100f64,
+        }
     }
 
     pub async fn wm_counters(&self) -> (u32, Vec<(u64, u32)>) {
@@ -192,7 +198,7 @@ impl Model {
         // By default user starts with 0 eur 
         let res = sqlx::query(
             r#"
-            INSERT INTO bank VALUES ($1, 0)
+            INSERT INTO bank VALUES ($1, 0, DATE('now', '-1 day'))
             "#
         )
         .bind(user_id.to_string())
@@ -461,7 +467,6 @@ impl Model {
             _ => { return None; },
         };
 
-        
         // Update user funds, add bet if won, subtract bet otherwise
         let res = sqlx::query(
             r#"
@@ -478,5 +483,27 @@ impl Model {
         .ok()?;
     
         Some(has_won)
+    }
+
+    pub async fn daily(&self, user_id: u64) -> Option<bool> {
+        // Used to check if user account exists
+        self.balance(user_id).await?;
+        
+        let res = sqlx::query(
+            r#"
+            UPDATE bank
+            SET last_daily = CURRENT_TIMESTAMP,
+                balance = balance + $2
+            WHERE user_id = $1
+            AND DATE(last_daily) <> DATE(CURRENT_TIMESTAMP)
+            "#
+        )
+        .bind(user_id.to_string())
+        .bind(self.daily_amount)
+        .execute(&self.db_pool)
+        .await
+        .ok()?;
+
+        Some(res.rows_affected() > 0)
     }
 }
