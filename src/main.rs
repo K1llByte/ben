@@ -72,7 +72,7 @@ async fn main() {
             commands::portfolio(),
             commands::buy(),
             commands::sell(),
-            // commands::sellall(),
+            commands::sellall(),
             commands::coin(),
             commands::daily(),
         ],

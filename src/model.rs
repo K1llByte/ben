@@ -415,10 +415,13 @@ impl Model {
         // Check if user_id has this amount of coins
         let owned_coin_amount: f64 = sqlx::query_scalar(
             r#"
-            SELECT SUM(amount) FROM transactions WHERE user_id = $1;
+            SELECT SUM(amount)
+            FROM transactions
+            WHERE user_id = $1 AND coin_symbol = $2;
             "#
         )
         .bind(user_id_str)
+        .bind(coin_symbol)
         .fetch_one(&self.db_pool)
         .await
         .ok()?;
@@ -429,6 +432,7 @@ impl Model {
             return None;
         }
 
+        // Create sell transaction
         trace!("Creating transaction of {} {}", coin_amount, coin_symbol);
         let res = sqlx::query(
             r#"
@@ -451,6 +455,58 @@ impl Model {
         res.is_ok().then_some((coin_amount, coin_info.current_price))
     }
 
+    pub async fn sell_all(&self, user_id: u64, coin_symbol: &str) -> Option<(f64, f64)> {
+        // Get current coin price. Indirectly also checks if symbol is valid
+        let Some(coin_info) = self.coin_info(coin_symbol).await else {
+            return None;
+        };
+
+        // Convert user_id to string here for reuse.
+        let user_id_str = user_id.to_string();
+        let coin_symbol = coin_symbol.to_uppercase();
+        // Get amount of coins owned by this user_id
+        let owned_coin_amount: f64 = sqlx::query_scalar(
+            r#"
+            SELECT SUM(amount)
+            FROM transactions
+            WHERE user_id = $1 AND coin_symbol = $2;
+            "#
+        )
+        .bind(user_id_str)
+        .bind(&coin_symbol)
+        .fetch_one(&self.db_pool)
+        .await
+        .ok()?;
+
+        // Only proceed with transaction if user has positive amount of
+        // coins intended to sell.
+        if owned_coin_amount <= 0f64 {
+            return None;
+        }
+
+        // Create sell transaction
+        trace!("Creating transaction of {} {}", owned_coin_amount, coin_symbol);
+        let res = sqlx::query(
+            r#"
+            INSERT INTO transactions (user_id, coin_symbol, amount, price)
+            VALUES ($1, $2, $3, $4)
+            "#
+        )
+        .bind(user_id.to_string())
+        .bind(&coin_symbol)
+        .bind(-1f64 * owned_coin_amount)
+        .bind(coin_info.current_price)
+        .execute(&self.db_pool)
+        .await;
+        
+        // Add euros_amount to balance and make this a db transaction
+        self.bless(user_id, owned_coin_amount * coin_info.current_price).await.unwrap();
+        
+        // FIXME: If we get foreign key constraint violation then return error user doesn have a bank account
+
+        res.is_ok().then_some((owned_coin_amount, coin_info.current_price))
+    }
+
     pub async fn coin_flip(&self, user_id: u64, choice: &str, bet: f64) -> Option<bool> {
         // Bet must be positive amount
         if bet <= 0f64 {
@@ -468,12 +524,11 @@ impl Model {
         };
 
         // Update user funds, add bet if won, subtract bet otherwise
-        let res = sqlx::query(
+        sqlx::query(
             r#"
             UPDATE bank
             SET balance = balance + $2
-            WHERE user_id = $1 AND balance >= $2
-            RETURNING balance
+            WHERE user_id = $1 AND balance + $2 >= 0
             "#
         )
         .bind(user_id.to_string())

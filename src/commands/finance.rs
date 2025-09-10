@@ -228,6 +228,26 @@ pub async fn sell(
     Ok(())
 }
 
+/// Sell crypto currency in euros, if successful prints amount of coins bought.
+#[poise::command(prefix_command, slash_command, category = "Finance")]
+pub async fn sellall(
+    ctx: Context<'_>,
+    #[description = "Crypto currency symbol (ie: btc, eth, ...)"]
+    coin_symbol: String,
+) -> Result<(), Error> {
+
+    let amount_and_price_opt = ctx.data().sell_all(ctx.author().id.get(), &coin_symbol).await;
+    
+    if let Some(amount_and_price) = amount_and_price_opt {
+        ctx.say(format!("Successfully sold `{}` {} at {} euros", amount_and_price.0, coin_symbol.to_uppercase(), amount_and_price.1)).await.unwrap();
+    }
+    else {
+        ctx.say("Could not complete transaction").await.unwrap();
+    }
+
+    Ok(())
+}
+
 /// Bet on heads or tails.
 #[poise::command(prefix_command, slash_command, category = "Finance")]
 pub async fn coin(
