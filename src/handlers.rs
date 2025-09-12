@@ -1,7 +1,7 @@
-use serenity::prelude::*;
 use serenity::async_trait;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
+use serenity::prelude::*;
 
 pub struct Handler;
 

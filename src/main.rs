@@ -1,15 +1,13 @@
 use poise::serenity_prelude::{self as serenity, UserId};
-use std::{
-    collections::HashSet, sync::Arc, time::Duration
-};
-use tracing_subscriber;
-use tracing::{info, error};
+use std::{collections::HashSet, sync::Arc, time::Duration};
+use tracing::{error, info};
+use tracing_subscriber::{self, EnvFilter};
 
 use crate::config::Config;
 
 mod commands;
-mod model;
 mod config;
+mod model;
 mod permissions;
 
 // Types used by all command functions
@@ -39,8 +37,9 @@ async fn main() {
     dotenv::dotenv().ok();
 
     // Initialize logger
-     tracing_subscriber::fmt()
-        // .with_env_filter("monster_bot=debug,tower_http=info")
+    tracing_subscriber::fmt()
+        // .with_env_filter("ben=trace")
+        .with_env_filter(EnvFilter::from_default_env())
         .init();
 
     // Login with a bot token from the environment
@@ -89,7 +88,11 @@ async fn main() {
         // This code is run after a command if it was successful (returned Ok)
         post_command: |ctx| {
             Box::pin(async move {
-                info!("{} executed command {}", ctx.author().display_name(), ctx.command().qualified_name);
+                info!(
+                    "{} executed command {}",
+                    ctx.author().display_name(),
+                    ctx.command().qualified_name
+                );
             })
         },
         owners,

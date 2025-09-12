@@ -2,8 +2,8 @@ use std::{collections::HashMap, ops::Mul};
 
 use rand::Rng;
 use reqwest::Client;
-use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use serde::Deserialize;
+use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use tracing::{debug, trace, warn};
 
 use crate::{config::Config, permissions::Permission};
@@ -52,13 +52,15 @@ struct CmcQuoteData {
 impl Model {
     pub async fn new(config: Config) -> Self {
         // TODO: Handle errors properly
-        
+
         // Connect to SQLite (creates data.db if it doesn't exist)
         let db_pool = SqlitePool::connect_with(
             SqliteConnectOptions::new()
-            .filename("data.db")
-            .create_if_missing(true)
-        ).await.unwrap();
+                .filename("data.db")
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
 
         // Enable foreign_keys in sqlite
         sqlx::query(r#"PRAGMA foreign_keys = ON;"#)
@@ -92,7 +94,7 @@ impl Model {
         .execute(&db_pool)
         .await
         .unwrap();
-        
+
         // Create portfolio table
         sqlx::query(
             r#"
@@ -111,7 +113,7 @@ impl Model {
         .await
         .unwrap();
 
-        Self { 
+        Self {
             config,
             db_pool,
             permisisons: HashMap::new(),
@@ -120,7 +122,9 @@ impl Model {
     }
 
     pub fn user_has_permission(&self, user_id: u64, permission: Permission) -> bool {
-        self.permisisons.get(&user_id).is_some_and(|p| *p < permission)
+        self.permisisons
+            .get(&user_id)
+            .is_some_and(|p| *p < permission)
     }
 
     pub async fn wm_counters(&self) -> (u32, Vec<(u64, u32)>) {
@@ -130,7 +134,7 @@ impl Model {
             SELECT user_id, count
             FROM white_monster_counter
             ORDER BY count DESC
-            "#
+            "#,
         )
         .fetch_all(&self.db_pool)
         .await
@@ -146,21 +150,21 @@ impl Model {
 
     pub async fn inc_wm_counter(&self, user_id: u64, amount: u32) -> u32 {
         // FIXME: Handle results properly
-        
+
         let wm_counter: i64 = sqlx::query_scalar(
             r#"
             INSERT INTO white_monster_counter(user_id, count)
             VALUES($1, $2) ON CONFLICT(user_id) DO
             UPDATE SET count = count + $2
             RETURNING count;
-            "#
+            "#,
         )
         .bind(user_id.to_string())
         .bind(amount)
         .fetch_one(&self.db_pool)
         .await
         .unwrap();
-        
+
         u32::try_from(wm_counter).unwrap()
     }
 
@@ -172,14 +176,14 @@ impl Model {
             VALUES($1, $2) ON CONFLICT(user_id) DO
             UPDATE SET count = count - $2
             RETURNING count;
-            "#
+            "#,
         )
         .bind(user_id.to_string())
         .bind(amount)
         .fetch_one(&self.db_pool)
         .await
         .unwrap();
-        
+
         u32::try_from(wm_counter).unwrap()
     }
 
@@ -187,7 +191,7 @@ impl Model {
         let res = sqlx::query_scalar(
             r#"
             SELECT balance FROM bank WHERE user_id = $1
-            "#
+            "#,
         )
         .bind(user_id.to_string())
         .fetch_one(&self.db_pool)
@@ -201,11 +205,11 @@ impl Model {
     }
 
     pub async fn create_bank_account(&self, user_id: u64) -> bool {
-        // By default user starts with 0 eur 
+        // By default user starts with 0 eur
         let res = sqlx::query(
             r#"
             INSERT INTO bank VALUES ($1, 0, DATE('now', '-1 day'))
-            "#
+            "#,
         )
         .bind(user_id.to_string())
         .execute(&self.db_pool)
@@ -225,7 +229,12 @@ impl Model {
     }
 
     // Returns None if src_user has insuficient funds
-    pub async fn give(&self, src_user_id: u64, dst_user_id: u64, amount: f64) -> Option<(f64, f64)> {
+    pub async fn give(
+        &self,
+        src_user_id: u64,
+        dst_user_id: u64,
+        amount: f64,
+    ) -> Option<(f64, f64)> {
         // DB PRECONDITION: - src_user_id and dst_user_id exist in the bank table
         assert!(amount > 0f64);
 
@@ -235,27 +244,28 @@ impl Model {
             UPDATE bank SET balance = balance - $2
             WHERE user_id = $1 AND balance >= $2
             RETURNING balance
-            "#
+            "#,
         )
         .bind(src_user_id.to_string())
         .bind(amount)
         .fetch_one(&self.db_pool)
         .await;
 
-        
         let src_new_balance = match src_new_balance_res {
             Ok(Some(src_new_balance)) => src_new_balance,
-            Err(sqlx::Error::RowNotFound) => {return None;},
+            Err(sqlx::Error::RowNotFound) => {
+                return None;
+            }
             _ => panic!("Unexpected behaviour"),
         };
-        
+
         // Update dst_user balance
         let dst_new_balance_opt: Option<f64> = sqlx::query_scalar(
             r#"
             UPDATE bank SET balance = balance + $2
             WHERE user_id = $1
             RETURNING balance
-            "#
+            "#,
         )
         .bind(dst_user_id.to_string())
         .bind(amount)
@@ -272,7 +282,7 @@ impl Model {
             UPDATE bank SET balance = MAX(balance + $2, 0)
             WHERE user_id = $1
             RETURNING balance
-            "#
+            "#,
         )
         .bind(dst_user_id.to_string())
         .bind(amount)
@@ -292,7 +302,7 @@ impl Model {
             SELECT user_id, balance
             FROM bank
             ORDER BY balance DESC
-            "#
+            "#,
         )
         .fetch_all(&self.db_pool)
         .await
@@ -309,7 +319,11 @@ impl Model {
     pub async fn coin_info(&self, coin_symbol: &str) -> Option<CoinInfo> {
         let url = format!(
             "https://{}-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={}&convert=eur",
-            if self.config.use_cmc_sandbox_api { "sandbox" } else { "pro" },
+            if self.config.use_cmc_sandbox_api {
+                "sandbox"
+            } else {
+                "pro"
+            },
             coin_symbol
         );
 
@@ -324,10 +338,13 @@ impl Model {
             .ok()?;
 
         if response.status.error_code != 0 {
-            warn!("Cmc request returned with error_code {}", response.status.error_code);
+            warn!(
+                "Cmc request returned with error_code {}",
+                response.status.error_code
+            );
         }
 
-        let data = response.data?;        
+        let data = response.data?;
         debug!("data: {:?}", data);
 
         let crypto_data = data.get(coin_symbol.to_uppercase().as_str())?;
@@ -339,7 +356,7 @@ impl Model {
         })
     }
 
-    pub async fn portfolio(&self, user_id: u64) -> Option<Vec<(String, f64, f64)>>{
+    pub async fn portfolio(&self, user_id: u64) -> Option<Vec<(String, f64, f64)>> {
         println!("Before getting query data");
         let mut portfolio_raw_data: Vec<(String, f64, f64)> = sqlx::query_as(
             r#"
@@ -348,7 +365,7 @@ impl Model {
             WHERE user_id = $1
             GROUP BY coin_symbol
             HAVING total_amount > 0;
-            "#
+            "#,
         )
         .bind(user_id.to_string())
         .fetch_all(&self.db_pool)
@@ -364,7 +381,12 @@ impl Model {
     }
 
     /// Create a transaction, returns amount of coins bought/sold and current price
-    pub async fn buy(&self, user_id: u64, coin_symbol: &str, euro_amount: f64) -> Option<(f64, f64)> {
+    pub async fn buy(
+        &self,
+        user_id: u64,
+        coin_symbol: &str,
+        euro_amount: f64,
+    ) -> Option<(f64, f64)> {
         // Check if amount is positive
         if euro_amount <= 0f64 {
             return None;
@@ -384,7 +406,7 @@ impl Model {
             r#"
             INSERT INTO transactions (user_id, coin_symbol, amount, price)
             VALUES ($1, $2, $3, $4)
-            "#
+            "#,
         )
         .bind(user_id.to_string())
         .bind(coin_symbol.to_uppercase())
@@ -395,13 +417,19 @@ impl Model {
 
         // Remove euros_amount from balance and make this a db transaction
         self.bless(user_id, -euro_amount).await?;
-        
+
         // FIXME: If we get foregn key constraint violation then return error user doesn have a bank account
 
-        res.is_ok().then_some((coin_amount, coin_info.current_price))
+        res.is_ok()
+            .then_some((coin_amount, coin_info.current_price))
     }
 
-    pub async fn sell(&self, user_id: u64, coin_symbol: &str, euro_amount: f64) -> Option<(f64, f64)> {
+    pub async fn sell(
+        &self,
+        user_id: u64,
+        coin_symbol: &str,
+        euro_amount: f64,
+    ) -> Option<(f64, f64)> {
         // Check if amount is positive (we are selling a positive ammount)
         if euro_amount <= 0f64 {
             return None;
@@ -424,7 +452,7 @@ impl Model {
             SELECT SUM(amount)
             FROM transactions
             WHERE user_id = $1 AND coin_symbol = $2;
-            "#
+            "#,
         )
         .bind(user_id_str)
         .bind(coin_symbol)
@@ -444,7 +472,7 @@ impl Model {
             r#"
             INSERT INTO transactions (user_id, coin_symbol, amount, price)
             VALUES ($1, $2, $3, $4)
-            "#
+            "#,
         )
         .bind(user_id.to_string())
         .bind(coin_symbol)
@@ -455,10 +483,11 @@ impl Model {
 
         // Add euros_amount to balance and make this a db transaction
         self.bless(user_id, euro_amount).await.unwrap();
-        
+
         // FIXME: If we get foreign key constraint violation then return error user doesn have a bank account
 
-        res.is_ok().then_some((coin_amount, coin_info.current_price))
+        res.is_ok()
+            .then_some((coin_amount, coin_info.current_price))
     }
 
     pub async fn sell_all(&self, user_id: u64, coin_symbol: &str) -> Option<(f64, f64)> {
@@ -476,7 +505,7 @@ impl Model {
             SELECT SUM(amount)
             FROM transactions
             WHERE user_id = $1 AND coin_symbol = $2;
-            "#
+            "#,
         )
         .bind(user_id_str)
         .bind(&coin_symbol)
@@ -491,12 +520,15 @@ impl Model {
         }
 
         // Create sell transaction
-        trace!("Creating transaction of {} {}", owned_coin_amount, coin_symbol);
+        trace!(
+            "Creating transaction of {} {}",
+            owned_coin_amount, coin_symbol
+        );
         let res = sqlx::query(
             r#"
             INSERT INTO transactions (user_id, coin_symbol, amount, price)
             VALUES ($1, $2, $3, $4)
-            "#
+            "#,
         )
         .bind(user_id.to_string())
         .bind(&coin_symbol)
@@ -504,13 +536,16 @@ impl Model {
         .bind(coin_info.current_price)
         .execute(&self.db_pool)
         .await;
-        
+
         // Add euros_amount to balance and make this a db transaction
-        self.bless(user_id, owned_coin_amount * coin_info.current_price).await.unwrap();
-        
+        self.bless(user_id, owned_coin_amount * coin_info.current_price)
+            .await
+            .unwrap();
+
         // FIXME: If we get foreign key constraint violation then return error user doesn have a bank account
 
-        res.is_ok().then_some((owned_coin_amount, coin_info.current_price))
+        res.is_ok()
+            .then_some((owned_coin_amount, coin_info.current_price))
     }
 
     pub async fn coin_flip(&self, user_id: u64, choice: &str, bet: f64) -> Option<bool> {
@@ -521,12 +556,14 @@ impl Model {
 
         // Flip coin with 50/50 probability
         let flip_result = rand::rng().random_bool(0.5);
-        
-        // true is heads, false is tails 
+
+        // true is heads, false is tails
         let has_won = match choice {
-            "heads" => { flip_result },
-            "tails" => { !flip_result },
-            _ => { return None; },
+            "heads" => flip_result,
+            "tails" => !flip_result,
+            _ => {
+                return None;
+            }
         };
 
         // Update user funds, add bet if won, subtract bet otherwise
@@ -535,21 +572,21 @@ impl Model {
             UPDATE bank
             SET balance = balance + $2
             WHERE user_id = $1 AND balance + $2 >= 0
-            "#
+            "#,
         )
         .bind(user_id.to_string())
-        .bind(if has_won { bet } else {-bet})
+        .bind(if has_won { bet } else { -bet })
         .execute(&self.db_pool)
         .await
         .ok()?;
-    
+
         Some(has_won)
     }
 
     pub async fn daily(&self, user_id: u64) -> Option<bool> {
         // Used to check if user account exists
         self.balance(user_id).await?;
-        
+
         let res = sqlx::query(
             r#"
             UPDATE bank
@@ -557,7 +594,7 @@ impl Model {
                 balance = balance + $2
             WHERE user_id = $1
             AND DATE(last_daily) <> DATE(CURRENT_TIMESTAMP)
-            "#
+            "#,
         )
         .bind(user_id.to_string())
         .bind(self.daily_amount)
