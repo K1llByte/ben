@@ -6,7 +6,7 @@ use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use serde::Deserialize;
 use tracing::{debug, trace, warn};
 
-use crate::config::Config;
+use crate::{config::Config, permissions::Permission};
 
 // pub enum CryptoError {
 //     SymbolNotFound,
@@ -16,6 +16,7 @@ use crate::config::Config;
 pub struct Model {
     config: Config,
     db_pool: SqlitePool,
+    permisisons: HashMap<u64, Permission>,
     pub daily_amount: f64,
 }
 
@@ -113,8 +114,13 @@ impl Model {
         Self { 
             config,
             db_pool,
+            permisisons: HashMap::new(),
             daily_amount: 100f64,
         }
+    }
+
+    pub fn user_has_permission(&self, user_id: u64, permission: Permission) -> bool {
+        self.permisisons.get(&user_id).is_some_and(|p| *p < permission)
     }
 
     pub async fn wm_counters(&self) -> (u32, Vec<(u64, u32)>) {
@@ -388,7 +394,7 @@ impl Model {
         .await;
 
         // Remove euros_amount from balance and make this a db transaction
-        self.bless(user_id, -euro_amount).await.unwrap();
+        self.bless(user_id, -euro_amount).await?;
         
         // FIXME: If we get foregn key constraint violation then return error user doesn have a bank account
 

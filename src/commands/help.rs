@@ -1,4 +1,4 @@
-use crate::{Context};
+use crate::{Context, permissions::*};
 
 /// Help command
 #[poise::command(prefix_command, slash_command)]
@@ -17,11 +17,12 @@ Type !help <command> for more info on a command.",
     Ok(())
 }
 
-/// Debug command used for testing
-#[poise::command(prefix_command, slash_command, owners_only)]
+/// ADMIN COMMAND: Debug command used for testing
+#[poise::command(prefix_command, slash_command, owners_only, check = "is_admin")]
 pub async fn debug(
     ctx: Context<'_>,
 ) -> Result<(), crate::Error> {
-    ctx.say("Debug command").await?;
+    
+    ctx.say(format!("{:?}", ctx.framework().options().owners)).await?;
     Ok(())
 }

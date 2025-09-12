@@ -1,4 +1,4 @@
-use poise::serenity_prelude::{self as serenity};
+use poise::serenity_prelude::{self as serenity, UserId};
 use std::{
     collections::HashSet, sync::Arc, time::Duration
 };
@@ -10,6 +10,7 @@ use crate::config::Config;
 mod commands;
 mod model;
 mod config;
+mod permissions;
 
 // Types used by all command functions
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -49,9 +50,7 @@ async fn main() {
         ..Config::default()
     };
 
-    #[allow(unused_mut)]
-    let mut owners = HashSet::new();
-    // owners.insert(UserId::new(181002804813496320));
+    let owners = HashSet::new();
 
     // FrameworkOptions contains all of poise's configuration option in one struct
     // Every option can be omitted to use its default value
@@ -76,6 +75,8 @@ async fn main() {
             commands::coin(),
             commands::daily(),
         ],
+        // If true, discord bot owner account will be added automatically
+        initialize_owners: false,
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("!".into()),
             edit_tracker: Some(Arc::new(poise::EditTracker::for_timespan(

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use poise::serenity_prelude::{Client, Mention, User, UserId};
 use tracing_subscriber::fmt::format;
 
-use crate::{commands::get_user_name, Context, Error};
+use crate::{commands::get_user_name, Context, Error, permissions::*};
 
 /// Displays current money balance (in euros).
 #[poise::command(prefix_command, slash_command, category = "Finance", aliases("balance"))]
@@ -88,7 +88,7 @@ pub async fn give(
 }
 
 /// ADMIN COMMAND: Inject money (in euros) to another user.
-#[poise::command(prefix_command, slash_command, category = "Finance")]
+#[poise::command(prefix_command, slash_command, owners_only, category = "Finance", check = "is_admin")]
 pub async fn bless(
     ctx: Context<'_>,
     dst_user: User,
@@ -162,6 +162,11 @@ pub async fn portfolio(
     let portfolio_opt = ctx.data().portfolio(ctx.author().id.get()).await;
     
     if let Some(portfolio) = portfolio_opt {
+        if portfolio.is_empty() {
+            ctx.say("Empty portfolio!").await.unwrap();
+            return Ok(());
+        }
+
         let mut portfolio_str = "Portfolio:\n".to_string();
         for (coin_symbol, total_amount, total_value) in &portfolio {
             portfolio_str.push_str(
