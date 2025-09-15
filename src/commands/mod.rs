@@ -1,4 +1,5 @@
 use poise::serenity_prelude::UserId;
+// use thiserror::Error;
 
 pub mod help;
 pub use help::*;
@@ -21,3 +22,9 @@ pub async fn get_user_name(ctx: &crate::Context<'_>, user_id: UserId) -> String 
         }
     }
 }
+
+// #[derive(thiserror::Error, Debug)]
+// pub enum ModelError {
+//     #[error("Invalid input")]
+//     DbError(sqlx::Error),
+// }

@@ -1,43 +1,37 @@
-use std::collections::HashMap;
+use poise::serenity_prelude::{User, UserId};
 
-use poise::serenity_prelude::{Client, Mention, User, UserId};
-use tracing_subscriber::fmt::format;
+use crate::{Context, Error, commands::get_user_name, model::ModelError, permissions::*};
 
-use crate::{Context, Error, commands::get_user_name, permissions::*};
-
-/// Displays current money balance (in euros).
+/// Displays current money balance (in euros). If bank account does not exist, create one.
 #[poise::command(
     prefix_command,
     slash_command,
     category = "Finance",
     aliases("balance")
 )]
-pub async fn bank(ctx: Context<'_>) -> Result<(), Error> {
+pub async fn bank(ctx: Context<'_>) -> anyhow::Result<()> {
     let user_id = ctx.author().id;
 
-    if let Some(balance) = ctx.data().balance(user_id.get()).await {
-        ctx.say(format!(
-            "**{}** has `{}` euros",
-            get_user_name(&ctx, user_id).await,
-            balance
-        ))
-        .await
-        .unwrap();
-    } else {
-        let created = ctx.data().create_bank_account(user_id.get()).await;
-        if created {
+    match ctx.data().balance(user_id.get()).await {
+        Ok(balance) => {
             ctx.say(format!(
-                "__Created bank account!__\n**{}** - `{}` (eur)",
+                "**{}** has `{}` euros",
                 get_user_name(&ctx, user_id).await,
-                0
+                balance
             ))
-            .await
-            .unwrap();
-        } else {
-            ctx.say("Unexpected error creating bank account!")
-                .await
-                .unwrap();
+            .await?;
         }
+        Err(ModelError::BankAccountNotFound(_)) => {
+            if ctx.data().create_bank_account(user_id.get()).await.is_ok() {
+                ctx.say(format!(
+                    "__Created bank account!__\n**{}** - `{}` (eur)",
+                    get_user_name(&ctx, user_id).await,
+                    0
+                ))
+                .await?;
+            }
+        }
+        _ => Err(ModelError::UnexpectedError)?,
     }
 
     Ok(())
@@ -45,45 +39,31 @@ pub async fn bank(ctx: Context<'_>) -> Result<(), Error> {
 
 /// Give money (in euros) to another user.
 #[poise::command(prefix_command, slash_command, category = "Finance")]
-pub async fn give(ctx: Context<'_>, dst_user: User, amount: f64) -> Result<(), Error> {
-    // Check if source user has a bank account
+pub async fn give(ctx: Context<'_>, dst_user: User, amount: f64) -> anyhow::Result<()> {
     let src_user_id = ctx.author().id.get();
-    if !ctx.data().bank_account_exists(src_user_id).await {
-        ctx.say(format!(
-            "User **{}** has no bank account",
-            ctx.author().name
-        ))
-        .await
-        .unwrap();
-        return Ok(());
-    }
-
-    // Check if destination user has a bank account
     let dst_user_id = dst_user.id.get();
-    if !ctx.data().bank_account_exists(dst_user_id).await {
-        ctx.say(format!("User **{}** has no bank account", dst_user.name))
-            .await
-            .unwrap();
-        return Ok(());
-    }
 
-    // Check if is a valid positive amount
-    if amount <= 0f64 {
-        ctx.say("Must be a positive amount!").await.unwrap();
-        return Ok(());
-    }
-
-    if let Some((_, _)) = ctx.data().give(src_user_id, dst_user_id, amount).await {
-        ctx.say(format!(
-            "{} gave {} `{}` euros.",
-            ctx.author().name,
-            dst_user.name,
-            amount
-        ))
-        .await
-        .unwrap();
-    } else {
-        ctx.say("Insuficient funds!").await.unwrap();
+    match ctx.data().give(src_user_id, dst_user_id, amount).await {
+        Ok((_, _)) => {
+            ctx.say(format!(
+                "{} gave {} `{}` euros.",
+                ctx.author().name,
+                dst_user.name,
+                amount
+            ))
+            .await?;
+        }
+        Err(error @ ModelError::InsuficientFunds) | Err(error @ ModelError::InvalidValue(_)) => {
+            ctx.say(error.to_string()).await?;
+        }
+        Err(ModelError::BankAccountNotFound(user_id)) => {
+            ctx.say(format!(
+                "User **{}** has no bank account",
+                get_user_name(&ctx, UserId::new(user_id)).await
+            ))
+            .await?;
+        }
+        Err(error) => Err(error)?,
     }
 
     Ok(())
@@ -97,18 +77,20 @@ pub async fn give(ctx: Context<'_>, dst_user: User, amount: f64) -> Result<(), E
     category = "Finance",
     check = "is_admin"
 )]
-pub async fn bless(ctx: Context<'_>, dst_user: User, amount: f64) -> Result<(), Error> {
-    if let Some(_) = ctx.data().bless(dst_user.id.get(), amount).await {
-        ctx.say(format!(
-            "**{}**, you were blessed with `{}` euros, amen :pray:",
-            dst_user.name, amount
-        ))
-        .await
-        .unwrap();
-    } else {
-        ctx.say(format!("User **{}** has no bank account", dst_user.name))
-            .await
-            .unwrap();
+pub async fn bless(ctx: Context<'_>, dst_user: User, amount: f64) -> anyhow::Result<()> {
+    match ctx.data().bless(dst_user.id.get(), amount).await {
+        Ok(_) => {
+            ctx.say(format!(
+                "**{}**, you were blessed with `{}` euros, amen :pray:",
+                dst_user.name, amount
+            ))
+            .await?;
+        }
+        Err(ModelError::BankAccountNotFound(_)) => {
+            ctx.say(format!("User **{}** has no bank account", dst_user.name))
+                .await?;
+        }
+        Err(error) => Err(error)?,
     }
 
     Ok(())
@@ -117,7 +99,12 @@ pub async fn bless(ctx: Context<'_>, dst_user: User, amount: f64) -> Result<(), 
 /// Bank leaderboard. Who's the wealthiest.
 #[poise::command(prefix_command, slash_command, category = "Finance")]
 pub async fn leaderboard(ctx: Context<'_>) -> Result<(), Error> {
-    let bank_data = ctx.data().leaderboard().await;
+    let bank_data = ctx.data().leaderboard().await?;
+
+    if bank_data.is_empty() {
+        ctx.say("No users in leaderboard").await?;
+        return Ok(());
+    }
 
     let mut output = String::new();
     for (user_id, balance) in bank_data {
@@ -141,14 +128,18 @@ pub async fn price(
     ctx: Context<'_>,
     #[description = "Crypto currency symbol (ie: btc, eth, ...)"] coin_symbol: String,
 ) -> Result<(), Error> {
-    if let Some(coin_info) = ctx.data().coin_info(&coin_symbol).await {
-        ctx.say(format!(
-            "**Name:** `{}`\n**Current Price:** `{}` euros",
-            coin_info.name, coin_info.current_price
-        ))
-        .await?;
-    } else {
-        ctx.say(format!("Could not get coin info")).await?;
+    match ctx.data().coin_info(&coin_symbol).await {
+        Ok(coin_info) => {
+            ctx.say(format!(
+                "**Name:** `{}`\n**Current Price:** `{}` euros",
+                coin_info.name, coin_info.current_price
+            ))
+            .await?;
+        }
+        Err(error @ ModelError::InvalidValue(_)) => {
+            ctx.say(error.to_string()).await?;
+        }
+        Err(error) => Err(error)?,
     }
 
     Ok(())
@@ -157,29 +148,35 @@ pub async fn price(
 /// Displays list of owned coins amount, the profit percentage, and absolute profit in euros.
 #[poise::command(prefix_command, slash_command, category = "Finance")]
 pub async fn portfolio(ctx: Context<'_>) -> Result<(), Error> {
-    let portfolio_opt = ctx.data().portfolio(ctx.author().id.get()).await;
-
-    if let Some(portfolio) = portfolio_opt {
-        if portfolio.is_empty() {
-            ctx.say("Empty portfolio!").await.unwrap();
+    let portfolio_data = match ctx.data().portfolio(ctx.author().id.get()).await {
+        Ok(portfolio_data) => portfolio_data,
+        Err(ModelError::BankAccountNotFound(_)) => {
+            ctx.say(format!(
+                "User **{}** has no bank account",
+                ctx.author().name
+            ))
+            .await?;
             return Ok(());
         }
+        Err(error) => Err(error)?,
+    };
 
-        let mut portfolio_str = "Portfolio:\n".to_string();
-        for (coin_symbol, total_amount, total_value) in &portfolio {
-            portfolio_str.push_str(
-                format!(
-                    "- Symbol: **{}**, Total Amount: `{}` Total Value: `{}` euros\n",
-                    coin_symbol, total_amount, total_value
-                )
-                .as_str(),
-            );
-        }
-
-        ctx.say(portfolio_str).await.unwrap();
-    } else {
-        ctx.say("Could not get portfolio data").await.unwrap();
+    if portfolio_data.is_empty() {
+        ctx.say("Empty portfolio!").await?;
+        return Ok(());
     }
+
+    let mut portfolio_str = "Portfolio:\n".to_string();
+    for (coin_symbol, total_amount, total_value) in &portfolio_data {
+        portfolio_str.push_str(
+            format!(
+                "- Symbol: **{}**, Total Amount: `{}` Total Value: `{}` euros\n",
+                coin_symbol, total_amount, total_value
+            )
+            .as_str(),
+        );
+    }
+    ctx.say(portfolio_str).await?;
 
     Ok(())
 }
@@ -191,22 +188,32 @@ pub async fn buy(
     #[description = "Crypto currency symbol (ie: btc, eth, ...)"] coin_symbol: String,
     #[description = "Value in euros of the amount of crypto you want to buy"] value: f64,
 ) -> Result<(), Error> {
-    let amount_and_price_opt = ctx
+    let amount_and_price_res = ctx
         .data()
         .buy(ctx.author().id.get(), &coin_symbol, value)
         .await;
 
-    if let Some(amount_and_price) = amount_and_price_opt {
-        ctx.say(format!(
-            "Successfully bought `{}` {} at {} euros",
-            amount_and_price.0,
-            coin_symbol.to_uppercase(),
-            amount_and_price.1
-        ))
-        .await
-        .unwrap();
-    } else {
-        ctx.say("Could not complete transaction").await.unwrap();
+    match amount_and_price_res {
+        Ok((amount, price)) => {
+            ctx.say(format!(
+                "Successfully bought `{}` {} at `{}` euros",
+                amount,
+                coin_symbol.to_uppercase(),
+                price
+            ))
+            .await?;
+        }
+        Err(ModelError::BankAccountNotFound(_)) => {
+            ctx.say(format!(
+                "User **{}** has no bank account",
+                ctx.author().name
+            ))
+            .await?;
+        }
+        Err(error @ ModelError::InsuficientFunds) | Err(error @ ModelError::InvalidValue(_)) => {
+            ctx.say(error.to_string()).await?;
+        }
+        Err(error) => Err(error)?,
     }
 
     Ok(())
@@ -219,22 +226,32 @@ pub async fn sell(
     #[description = "Crypto currency symbol (ie: btc, eth, ...)"] coin_symbol: String,
     #[description = "Value in euros of the amount of crypto you want to sell"] value: f64,
 ) -> Result<(), Error> {
-    let amount_and_price_opt = ctx
+    let amount_and_price_res = ctx
         .data()
         .sell(ctx.author().id.get(), &coin_symbol, value)
         .await;
 
-    if let Some(amount_and_price) = amount_and_price_opt {
-        ctx.say(format!(
-            "Successfully sold `{}` {} at {} euros",
-            amount_and_price.0,
-            coin_symbol.to_uppercase(),
-            amount_and_price.1
-        ))
-        .await
-        .unwrap();
-    } else {
-        ctx.say("Could not complete transaction").await.unwrap();
+    match amount_and_price_res {
+        Ok((amount, price)) => {
+            ctx.say(format!(
+                "Successfully sold `{}` {} at `{}` euros",
+                amount,
+                coin_symbol.to_uppercase(),
+                price
+            ))
+            .await?;
+        }
+        Err(ModelError::BankAccountNotFound(_)) => {
+            ctx.say(format!(
+                "User **{}** has no bank account",
+                ctx.author().name
+            ))
+            .await?;
+        }
+        Err(error @ ModelError::InvalidValue(_)) | Err(error @ ModelError::InsuficientCoins) => {
+            ctx.say(error.to_string()).await?;
+        }
+        Err(error) => Err(error)?,
     }
 
     Ok(())
@@ -246,22 +263,32 @@ pub async fn sellall(
     ctx: Context<'_>,
     #[description = "Crypto currency symbol (ie: btc, eth, ...)"] coin_symbol: String,
 ) -> Result<(), Error> {
-    let amount_and_price_opt = ctx
+    let amount_and_price_res = ctx
         .data()
         .sell_all(ctx.author().id.get(), &coin_symbol)
         .await;
 
-    if let Some(amount_and_price) = amount_and_price_opt {
-        ctx.say(format!(
-            "Successfully sold `{}` {} at {} euros",
-            amount_and_price.0,
-            coin_symbol.to_uppercase(),
-            amount_and_price.1
-        ))
-        .await
-        .unwrap();
-    } else {
-        ctx.say("Could not complete transaction").await.unwrap();
+    match amount_and_price_res {
+        Ok((amount, price)) => {
+            ctx.say(format!(
+                "Successfully sold `{}` {} at `{}` euros",
+                amount,
+                coin_symbol.to_uppercase(),
+                price
+            ))
+            .await?;
+        }
+        Err(ModelError::BankAccountNotFound(_)) => {
+            ctx.say(format!(
+                "User **{}** has no bank account",
+                ctx.author().name
+            ))
+            .await?;
+        }
+        Err(error @ ModelError::InsuficientCoins) => {
+            ctx.say(error.to_string()).await?;
+        }
+        Err(error) => Err(error)?,
     }
 
     Ok(())
@@ -274,29 +301,34 @@ pub async fn coin(
     #[description = "Heads or tails"] choice: String,
     #[description = "Bet amount in euros"] bet: f64,
 ) -> Result<(), Error> {
-    let has_won_opt = ctx
+    let has_won_res = ctx
         .data()
         .coin_flip(ctx.author().id.get(), choice.to_lowercase().as_str(), bet)
         .await;
 
-    match has_won_opt {
-        Some(true) => {
+    match has_won_res {
+        Ok(true) => {
             ctx.say(format!(
                 "Congratulations, the coin landed on {}!\nYou won {} euros :euro:",
                 choice.to_lowercase(),
                 bet
             ))
-            .await
-            .unwrap();
+            .await?;
         }
-        Some(false) => {
-            ctx.say(format!("Ups, you lost {} euros", bet))
-                .await
-                .unwrap();
+        Ok(false) => {
+            ctx.say(format!("Ups, you lost {} euros", bet)).await?;
         }
-        None => {
-            ctx.say("Could not finish action").await.unwrap();
+        Err(error @ ModelError::InvalidValue(_)) => {
+            ctx.say(error.to_string()).await?;
         }
+        Err(ModelError::BankAccountNotFound(_)) => {
+            ctx.say(format!(
+                "User **{}** has no bank account",
+                ctx.author().name
+            ))
+            .await?;
+        }
+        Err(error) => Err(error)?,
     }
 
     Ok(())
@@ -306,17 +338,25 @@ pub async fn coin(
 #[poise::command(prefix_command, slash_command, category = "Finance")]
 pub async fn daily(ctx: Context<'_>) -> Result<(), Error> {
     match ctx.data().daily(ctx.author().id.get()).await {
-        Some(true) => {
+        Ok(true) => {
             ctx.say(format!(
                 "Claimed daily reward `{}` euros",
                 ctx.data().daily_amount
             ))
-            .await
+            .await?;
         }
-        Some(false) => ctx.say("Already claimed reward today").await,
-        None => ctx.say("Could not finish action").await,
+        Ok(false) => {
+            ctx.say("Already claimed reward today").await?;
+        }
+        Err(ModelError::BankAccountNotFound(_)) => {
+            ctx.say(format!(
+                "User **{}** has no bank account",
+                ctx.author().name
+            ))
+            .await?;
+        }
+        Err(error) => Err(error)?,
     }
-    .unwrap();
 
     Ok(())
 }

@@ -1,9 +1,9 @@
-use poise::serenity_prelude::{self as serenity, UserId};
+use poise::serenity_prelude::{self as serenity};
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tracing::{error, info};
 use tracing_subscriber::{self, EnvFilter};
 
-use crate::config::Config;
+use crate::{config::Config, model::ModelError};
 
 mod commands;
 mod config;
@@ -11,17 +11,17 @@ mod model;
 mod permissions;
 
 // Types used by all command functions
-type Error = Box<dyn std::error::Error + Send + Sync>;
-type Context<'a> = poise::Context<'a, model::Model, Error>;
+type Error = anyhow::Error;
+type Context<'a> = poise::Context<'a, model::Model, anyhow::Error>;
 
-async fn on_error(error: poise::FrameworkError<'_, model::Model, Error>) {
-    // This is our custom error handler
-    // They are many errors that can occur, so we only handle the ones we want to customize
-    // and forward the rest to the default handler
+async fn on_error(error: poise::FrameworkError<'_, model::Model, anyhow::Error>) {
     match error {
         poise::FrameworkError::Setup { error, .. } => panic!("Failed to start bot: {:?}", error),
         poise::FrameworkError::Command { error, ctx, .. } => {
-            error!("Error in command `{}`: {:?}", ctx.command().name, error,);
+            error!("Error in command `{}`: {:?}", ctx.command().name, error);
+            if let Some(ModelError::UnexpectedError) = error.downcast_ref::<ModelError>() {
+                ctx.say("Unexpected error").await.unwrap();
+            }
         }
         error => {
             if let Err(e) = poise::builtins::on_error(error).await {
@@ -38,8 +38,8 @@ async fn main() {
 
     // Initialize logger
     tracing_subscriber::fmt()
-        // .with_env_filter("ben=trace")
-        .with_env_filter(EnvFilter::from_default_env())
+        // .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter("ben=trace")
         .init();
 
     // Login with a bot token from the environment
@@ -105,7 +105,7 @@ async fn main() {
             Box::pin(async move {
                 info!("Connected as {}", _ready.user.name);
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                Ok(model::Model::new(config).await)
+                Ok(model::Model::new(config).await?)
             })
         })
         .options(options)

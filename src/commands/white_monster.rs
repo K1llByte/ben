@@ -14,7 +14,7 @@ pub async fn wm(ctx: Context<'_>) -> Result<(), Error> {
             output
                 .push_str(format!("- **{}** has {}\n", cached_user.display_name(), count).as_str());
         } else {
-            let user = ctx.http().get_user(UserId::new(user_id)).await.unwrap();
+            let user = ctx.http().get_user(UserId::new(user_id)).await?;
             output.push_str(format!("- **{}** has {}\n", user.display_name(), count).as_str());
         };
     }
@@ -31,7 +31,7 @@ pub async fn wmadd(
     let wm_counter = ctx
         .data()
         .inc_wm_counter(ctx.author().id.get(), amount.unwrap_or(1))
-        .await;
+        .await?;
 
     trace!("Incremented white monster counter to {}", wm_counter);
     ctx.say(format!(
@@ -51,7 +51,7 @@ pub async fn wmrm(
     let wm_counter = ctx
         .data()
         .dec_wm_counter(ctx.author().id.get(), amount.unwrap_or(1))
-        .await;
+        .await?;
 
     trace!("Decremented white monster counter to {}", wm_counter);
     ctx.say(format!(
