@@ -9,6 +9,8 @@ pub struct Config {
     pub cmc_api_key: String,
     #[serde(default)]
     pub use_cmc_sandbox_api: bool,
+    #[serde(default)]
+    pub bot_admins: Vec<u64>,
 }
 
 #[derive(Debug, Error)]

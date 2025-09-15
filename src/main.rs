@@ -1,3 +1,4 @@
+use clap::Parser;
 use poise::serenity_prelude::{self as serenity};
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tracing::{error, info};
@@ -31,6 +32,14 @@ async fn on_error(error: poise::FrameworkError<'_, model::Model, anyhow::Error>)
     }
 }
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Path to config toml file
+    #[arg(short, long)]
+    config: Option<String>,
+}
+
 #[tokio::main]
 async fn main() {
     // Load the .env file
@@ -43,8 +52,11 @@ async fn main() {
         .init();
 
     // Load bot config from toml file
-    let config = Config::from_file(".config.toml").await.unwrap();
+    let args = Args::try_parse().unwrap();
+    let config_file = args.config.unwrap_or(".config.toml".into());
+    let config = Config::from_file(&config_file).await.unwrap();
     let discord_token = config.discord_token.clone();
+    info!("Loaded config file {}", &config_file);
 
     // FrameworkOptions contains all of poise's configuration option in one struct
     // Every option can be omitted to use its default value

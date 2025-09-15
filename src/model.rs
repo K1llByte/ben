@@ -125,9 +125,8 @@ impl Model {
         .execute(&db_pool)
         .await?;
 
-        let mut permissions = HashMap::new();
-        permissions.insert(181002804813496320u64, Permission::Admin);
-
+        let permissions =
+            HashMap::from_iter(config.bot_admins.iter().map(|id| (*id, Permission::Admin)));
         Ok(Self {
             config,
             db_pool,
@@ -585,6 +584,10 @@ impl Model {
             ));
         }
 
+        if self.balance(user_id).await? < bet {
+            return Err(ModelError::InsuficientFunds);
+        }
+
         // Flip coin with 50/50 probability
         let flip_result = rand::rng().random_bool(0.5);
 
@@ -604,7 +607,7 @@ impl Model {
             r#"
             UPDATE bank
             SET balance = balance + $2
-            WHERE user_id = $1 AND balance + $2 >= 0
+            WHERE user_id = $1
             "#,
         )
         .bind(user_id.to_string())

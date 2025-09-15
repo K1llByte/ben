@@ -318,7 +318,7 @@ pub async fn coin(
         Ok(false) => {
             ctx.say(format!("Ups, you lost {} euros", bet)).await?;
         }
-        Err(error @ ModelError::InvalidValue(_)) => {
+        Err(error @ ModelError::InvalidValue(_) | error @ ModelError::InsuficientFunds) => {
             ctx.say(error.to_string()).await?;
         }
         Err(ModelError::BankAccountNotFound(_)) => {
