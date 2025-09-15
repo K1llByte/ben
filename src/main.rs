@@ -42,14 +42,9 @@ async fn main() {
         .with_env_filter("ben=trace")
         .init();
 
-    // Login with a bot token from the environment
-    let token = std::env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
-    let config = Config {
-        cmc_api_key: std::env::var("CMC_API_KEY").expect("Expected an api key in the environment"),
-        ..Config::default()
-    };
-
-    let owners = HashSet::new();
+    // Load bot config from toml file
+    let config = Config::from_file(".config.toml").await.unwrap();
+    let discord_token = config.discord_token.clone();
 
     // FrameworkOptions contains all of poise's configuration option in one struct
     // Every option can be omitted to use its default value
@@ -95,7 +90,6 @@ async fn main() {
                 );
             })
         },
-        owners,
         ..Default::default()
     };
 
@@ -115,7 +109,7 @@ async fn main() {
     let intents =
         serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::MESSAGE_CONTENT;
 
-    let client = serenity::ClientBuilder::new(token, intents)
+    let client = serenity::ClientBuilder::new(discord_token, intents)
         .framework(framework)
         .await;
 

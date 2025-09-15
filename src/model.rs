@@ -70,8 +70,6 @@ struct CmcQuoteData {
 
 impl Model {
     pub async fn new(config: Config) -> ModelResult<Self> {
-        // TODO: Handle errors properly
-
         // Connect to SQLite (creates data.db if it doesn't exist)
         let db_pool = SqlitePool::connect_with(
             SqliteConnectOptions::new()
@@ -154,7 +152,6 @@ impl Model {
     }
 
     pub async fn wm_counters(&self) -> (u32, Vec<(u64, u32)>) {
-        // FIXME: Handle results properly
         let wm_data: Vec<(String, u32)> = sqlx::query_as(
             r#"
             SELECT user_id, count
@@ -192,7 +189,6 @@ impl Model {
     }
 
     pub async fn dec_wm_counter(&self, user_id: u64, amount: u32) -> ModelResult<u32> {
-        // FIXME: Handle results properly
         let wm_counter: i64 = sqlx::query_scalar(
             r#"
             INSERT INTO white_monster_counter(user_id, count)
@@ -454,8 +450,6 @@ impl Model {
         // Remove euros_amount from balance and make this a db transaction.
         self.bless(user_id, -euro_amount).await?;
 
-        // FIXME: If we get foregn key constraint violation then return error user doesn have a bank account
-
         Ok((coin_amount, coin_info.current_price))
     }
 
@@ -525,8 +519,6 @@ impl Model {
         // Add euros_amount to balance and make this a db transaction
         self.bless(user_id, euro_amount).await?;
 
-        // FIXME: If we get foreign key constraint violation then return error user doesn have a bank account
-
         Ok((coin_amount, coin_info.current_price))
     }
 
@@ -581,8 +573,6 @@ impl Model {
         // Add euros_amount to balance and make this a db transaction
         self.bless(user_id, owned_coin_amount * coin_info.current_price)
             .await?;
-
-        // FIXME: If we get foreign key constraint violation then return error user doesn have a bank account
 
         Ok((owned_coin_amount, coin_info.current_price))
     }
